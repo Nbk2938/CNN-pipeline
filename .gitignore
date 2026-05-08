@@ -1,6 +1,3 @@
-# Data files
-*.npy
-*.npz
 
 # Python
 __pycache__/
