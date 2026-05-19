@@ -196,8 +196,8 @@ def get_device() -> torch.device:
 
 
 def load_train_data(
-    noisy_path: str = "noisy_images_small_1k.npy",
-    clean_path: str = "clean_images_small_1k.npy",
+    noisy_path: str = "data/noisy_train_19k_harder.npy",
+    clean_path: str = "data/clean_train_19k_harder.npy",
 ) -> Tuple[np.ndarray, np.ndarray]:
     noisy = np.load(noisy_path).astype(np.float32) / 255.0
     clean = np.load(clean_path).astype(np.float32) / 255.0
@@ -207,7 +207,7 @@ def load_train_data(
     return noisy, clean
 
 
-def load_test_data(test_path: str = "noisy_val_1k_harder.npy") -> np.ndarray:
+def load_test_data(test_path: str = "data/noisy_val_1k_harder.npy") -> np.ndarray:
     noisy = np.load(test_path).astype(np.float32) / 255.0
     noisy = np.expand_dims(noisy, axis=1)
     return noisy
@@ -387,10 +387,10 @@ def run_inference_and_save(
 def main() -> None:
     # End-to-end pipeline requested: load data -> train Config C (100 epochs) -> infer -> save npz
     noisy_train, clean_train = load_train_data(
-        noisy_path="noisy_images_small_1k.npy",
-        clean_path="clean_images_small_1k.npy",
+        noisy_path="data/noisy_train_19k_harder.npy",
+        clean_path="data/clean_train_19k_harder.npy",
     )
-    noisy_test = load_test_data(test_path="noisy_val_1k_harder.npy")
+    noisy_test = load_test_data(test_path="data/noisy_val_1k_harder.npy")
 
     print("Train noisy shape:", noisy_train.shape)
     print("Train clean shape:", clean_train.shape)

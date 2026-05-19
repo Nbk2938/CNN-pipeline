@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from sklearn.model_selection import KFold, train_test_split
 from torch.utils.data import DataLoader, Dataset
-from visualization import plot_image_comparison, plot_kfold_results, plot_learned_filters
+from utils.visualization import plot_image_comparison, plot_kfold_results, plot_learned_filters
 
 try:
     from pytorch_msssim import ssim
@@ -280,9 +280,9 @@ def build_model_and_loss() -> tuple[UNetDenoiser, CombinedLoss, torch.device]:
 
 
 def load_and_preprocess_data(
-    train_noisy_path: str = "noisy_images_small_1k.npy",
-    train_clean_path: str = "clean_images_small_1k.npy",
-    test_noisy_path: str = "noisy_val_1k_harder.npy",
+    train_noisy_path: str = "data/noisy_train_19k_harder.npy",
+    train_clean_path: str = "data/clean_train_19k_harder.npy",
+    test_noisy_path: str = "data/noisy_val_1k_harder.npy",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Loads data, normalizes to [0,1], casts to float32, and adds channel dim.
@@ -633,9 +633,9 @@ def denoise_single_image(model: nn.Module, noisy_image_2d: np.ndarray, device: t
 
 if __name__ == "__main__":
     noisy_train, clean_train, noisy_test = load_and_preprocess_data(
-        train_noisy_path="noisy_images_small_1k.npy",
-        train_clean_path="clean_images_small_1k.npy",
-        test_noisy_path="noisy_val_1k_harder.npy",
+        train_noisy_path="data/noisy_train_19k_harder.npy",
+        train_clean_path="data/clean_train_19k_harder.npy",
+        test_noisy_path="data/noisy_val_1k_harder.npy",
     )
 
     print("Loaded train noisy shape:", noisy_train.shape)
