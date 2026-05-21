@@ -79,26 +79,38 @@ def plot_image_comparison(
     denoised: np.ndarray,
     title: str,
     filename: str,
+    augmented: Optional[np.ndarray] = None,
 ):
     """
-    Plot clean/noisy/denoised for labeled samples, and noisy/denoised for unlabeled samples.
+    Plot clean/noisy/augmented/denoised for labeled samples, noisy/denoised for unlabeled.
+    augmented: one sample of the augmented noisy input the model actually trains on.
     Adds MSE/SSIM in titles where clean is available.
     """
     if clean is not None:
-        noisy_mse = _compute_mse(clean, noisy)
+        noisy_mse  = _compute_mse(clean, noisy)
         noisy_ssim = _compute_ssim(clean, noisy)
-        den_mse = _compute_mse(clean, denoised)
-        den_ssim = _compute_ssim(clean, denoised)
+        den_mse    = _compute_mse(clean, denoised)
+        den_ssim   = _compute_ssim(clean, denoised)
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        n_cols = 4 if augmented is not None else 3
+        fig, axes = plt.subplots(1, n_cols, figsize=(n_cols * 5, 5))
+
         axes[0].imshow(clean, cmap="gray")
         axes[0].set_title("Clean")
 
         axes[1].imshow(noisy, cmap="gray")
-        axes[1].set_title(f"Noisy\nMSE={noisy_mse:.5f}, SSIM={noisy_ssim:.4f}")
+        axes[1].set_title(f"Noisy (original)\nMSE={noisy_mse:.5f}, SSIM={noisy_ssim:.4f}")
 
-        axes[2].imshow(denoised, cmap="gray")
-        axes[2].set_title(f"Denoised\nMSE={den_mse:.5f}, SSIM={den_ssim:.4f}")
+        if augmented is not None:
+            aug_mse  = _compute_mse(clean, augmented)
+            aug_ssim = _compute_ssim(clean, augmented)
+            axes[2].imshow(augmented, cmap="gray")
+            axes[2].set_title(f"Augmented (train input)\nMSE={aug_mse:.5f}, SSIM={aug_ssim:.4f}")
+            axes[3].imshow(denoised, cmap="gray")
+            axes[3].set_title(f"Denoised\nMSE={den_mse:.5f}, SSIM={den_ssim:.4f}")
+        else:
+            axes[2].imshow(denoised, cmap="gray")
+            axes[2].set_title(f"Denoised\nMSE={den_mse:.5f}, SSIM={den_ssim:.4f}")
 
         for ax in axes:
             ax.set_xticks([])
