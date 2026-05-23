@@ -80,10 +80,12 @@ def plot_image_comparison(
     title: str,
     filename: str,
     augmented: Optional[np.ndarray] = None,
+    aug_clean: Optional[np.ndarray] = None,
 ):
     """
     Plot clean/noisy/augmented/denoised for labeled samples, noisy/denoised for unlabeled.
     augmented: one sample of the augmented noisy input the model actually trains on.
+    aug_clean: the correspondingly transformed clean — used for augmented SSIM/MSE.
     Adds MSE/SSIM in titles where clean is available.
     """
     if clean is not None:
@@ -102,8 +104,9 @@ def plot_image_comparison(
         axes[1].set_title(f"Noisy (original)\nMSE={noisy_mse:.5f}, SSIM={noisy_ssim:.4f}")
 
         if augmented is not None:
-            aug_mse  = _compute_mse(clean, augmented)
-            aug_ssim = _compute_ssim(clean, augmented)
+            ref = aug_clean if aug_clean is not None else clean
+            aug_mse  = _compute_mse(ref, augmented)
+            aug_ssim = _compute_ssim(ref, augmented)
             axes[2].imshow(augmented, cmap="gray")
             axes[2].set_title(f"Augmented (train input)\nMSE={aug_mse:.5f}, SSIM={aug_ssim:.4f}")
             axes[3].imshow(denoised, cmap="gray")
