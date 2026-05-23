@@ -1,0 +1,133 @@
+# CNN Denoising Pipeline Report
+
+**Authors:** Suman Sherwani, Katie Denton, Till Neubecker
+
+
+## Introduction
+
+This project trains a grayscale image denoiser for high-resolution (128×128) lunar surface images
+corrupted by structured noise. The corruption is not random pixel noise but contains strong periodic
+grid patterns and horizontal/vertical banding artifacts, which makes it substantially harder than
+standard denoising tasks: the model must selectively remove repeating structured patterns while
+preserving faint surface textures and small bright features such as crater rims.
+
+We developed three progressive configurations of a U-Net style architecture, each addressing a
+specific limitation of the previous one. The final model is implemented in `Neubecker_T_OpenProject.py`,
+which trains all three configurations, produces all comparison plots, runs 5-fold cross-validation,
+and saves the denoised test predictions to `prediction.npz`.
+
+
+## Methods
+
+All three configurations share the same encoder-decoder backbone: a 4-level U-Net with residual
+double-convolution encoder blocks (Conv→BN→ReLU repeated twice, plus a 1×1 skip connection),
+2×2 max-pooling for downsampling, and transposed-convolution decoder blocks with skip connections
+from the corresponding encoder level. The bottleneck applies spatial dropout (p=0.2). The optimizer
+is AdamW (lr=5×10⁻⁴, weight decay=10⁻⁴) with cosine annealing over the full training run. Training
+data is split 80/20 into train and validation using a fixed random seed for reproducibility.
+
+**Config A — Basic U-Net (150 epochs)**
+The baseline model outputs a full clean image directly through a Sigmoid head. The loss combines
+MSE, L1, and a single-scale FFT magnitude term to discourage frequency-domain artifacts:
+
+  `L = 0.6·MSE + 0.2·L1 + 0.2·FFT-MSE`
+
+Data augmentation includes random horizontal/vertical flips, occasional 90° rotations, circular
+shifts, and noise-level jitter (α ∈ [0.7, 1.3], applied with probability 0.5). No gradient clipping.
+
+**Config B — Residual noise prediction + SE attention (160 epochs)**
+The key architectural change is switching the output strategy: instead of predicting the clean image
+directly, the model predicts the noise residual via a Tanh head, and the output is computed as
+`clamp(input − noise_prediction, 0, 1)`. This is more physically motivated — the model only needs to
+identify and subtract the structured artifact rather than reconstruct the entire image. A
+Squeeze-and-Excitation block is added at the bottleneck to provide channel-wise attention, helping
+the network focus on artifact-correlated frequency channels. The loss upgrades to a multi-scale FFT
+term computed at three resolutions (1×, 2×, 4× average pooling) with ortho normalisation to prevent
+magnitude blow-up, which is better suited for periodic patterns. Noise-level jitter is increased
+(α ∈ [0.9, 1.5], prob=0.6) and gradient clipping (max_norm=1.0) is added for training stability.
+
+  `L = 0.6·MSE + 0.2·L1 + 0.2·mean(FFT-MSE at scales 1, 2, 4)`
+
+Config B achieved lower training and validation losses than Config A, confirming that residual noise
+prediction is a better inductive bias for this structured corruption. However, inspecting the test
+images revealed that Config B still produced visible artifacts on certain samples (notably test
+samples 7 and 42), suggesting the model had not seen the exact type of structured line defects
+present in those images during training.
+
+**Final — Config B + banding augmentation (200 epochs)**
+To close the gap between training and test distributions, a banding augmentation module was added.
+During training, with probability 0.6, the augmented input has 10–20 synthetic horizontal and/or
+vertical line defects injected at random positions, widths (1–8 px), and intensities. An additional
+periodic dense grid pattern (spacing 10–25 px, intensity 0.05–0.10) is occasionally superimposed.
+This directly exposes the model to the class of structured noise present in the hardest test images.
+Noise-level jitter is tightened to α ∈ [0.9, 1.3] (matching the estimated test noise level).
+Training is extended to 200 epochs to allow convergence under the harder augmented distribution.
+
+
+## Results
+
+**Configuration comparison** ([results/config_comparison.png](results/config_comparison.png))
+The three loss curves are shown side by side. Config A converges to a higher plateau with a visible
+train/val gap. Config B converges faster and to a lower loss, reflecting the improved architecture
+and loss function. The Final model converges more slowly due to the harder augmented inputs but
+reaches the best validation loss and the tightest train/val gap, indicating better generalisation.
+Note that because each config uses a different loss formulation the absolute values are not directly
+comparable; the important signal is the trend within each curve and the qualitative output quality.
+
+**Cross-validation** ([results/kfold_curves.png](results/kfold_curves.png))
+5-fold cross-validation on the Final model (100 epochs per fold, trained from scratch on each fold)
+confirms that the generalisation behaviour is consistent: all five folds converge to similar
+validation losses, and the mean train and validation curves track closely, with no fold showing
+divergence or instability.
+
+**Image visualisations — training set**
+Two training samples (indices 30 and 42) are shown for each configuration
+([results/cross_model_train_30.png](results/cross_model_train_30.png),
+[results/cross_model_train_42.png](results/cross_model_train_42.png)).
+Config A removes the broad noise floor but leaves periodic grid lines visible in the output. Config B
+suppresses the grid far more aggressively, which is consistent with the residual prediction strategy.
+The Final model matches Config B on these training-distribution examples. The residual analysis
+([results/residual_train_30.png](results/residual_train_30.png),
+[results/residual_train_42.png](results/residual_train_42.png)) shows that the error maps of the
+Final model are nearly structureless, while Config A's residual retains clear periodic patterns.
+
+**Image visualisations — test set**
+Two test samples (indices 7 and 42) are shown for each configuration
+([results/cross_model_test_7.png](results/cross_model_test_7.png),
+[results/cross_model_test_42.png](results/cross_model_test_42.png)).
+These samples contain strong banding artifacts. Config B visibly over-smooths or introduces
+horizontal streak residuals on these images, confirming the distribution mismatch described above.
+The Final model cleanly removes the banding on both samples while preserving lunar surface detail.
+
+**Quantitative metric** ([results/metric_comparison.png](results/metric_comparison.png))
+Mean MSE evaluated on the held-out 20% validation split decreases monotonically: Config A →
+Config B → Final, confirming that each successive design decision produced a measurable improvement.
+
+
+## Discussion
+
+The progression from Config A to the Final model illustrates three complementary design principles
+for structured noise removal.
+
+First, *residual noise prediction* (Config B) is a better inductive bias than direct image
+reconstruction (Config A). Predicting what to subtract rather than what the output should be
+constrains the learning problem: the model only needs to identify the artifact pattern, not
+regenerate image content from scratch. This alone produced the largest single improvement in loss.
+
+Second, *multi-scale frequency-domain supervision* (Config B loss) is essential for periodic
+artifacts. Single-scale FFT loss penalises artifacts at one resolution and can miss coarse repeating
+patterns captured only at lower scales. Computing the FFT penalty at three spatial resolutions with
+ortho normalisation ensures that both fine-grained grid lines and coarser banding are penalised
+consistently.
+
+Third, *data augmentation targeted at the test distribution* (Final) is the most practically
+important step. Config B was a strong model on training-distribution images but failed on test images
+containing banding patterns it had never seen. The banding augmentation injected synthetic line
+defects during training that statistically resemble the test corruption, directly reducing the
+domain gap. This is a general lesson: when the test corruption is identifiable but rare in the
+training set, targeted synthetic augmentation is more effective than architectural complexity alone.
+
+The remaining limitation is that some extremely heavy banding (test sample 42 at maximum severity)
+still leaves faint residual structure in the output. This could be addressed by stronger or more
+diverse banding augmentation, or by a frequency-domain post-processing step, but was not pursued
+within this project's scope.
