@@ -40,7 +40,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.model_selection import KFold, train_test_split
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    SummaryWriter = None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Hyper-parameters and paths
@@ -481,7 +484,8 @@ def _train_loop(
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     best_val  = float("inf")
     history: Dict[str, List[float]] = {"train": [], "val": []}
-    writer    = SummaryWriter(log_dir=log_dir) if log_dir is not None else None
+    writer    = (SummaryWriter(log_dir=log_dir)
+                 if (log_dir is not None and SummaryWriter is not None) else None)
 
     for epoch in range(1, epochs + 1):
         tr = train_one_epoch(model, train_loader, criterion, optimizer, device, clip_grad)
