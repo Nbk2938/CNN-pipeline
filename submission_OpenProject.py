@@ -60,9 +60,10 @@ SEED         = 42
 
 RESULTS_DIR = "results"
 
-DATA_NOISY_TRAIN = "data/noisy_train_19k_harder.npy"
-DATA_CLEAN_TRAIN = "data/clean_train_19k_harder.npy"
-DATA_NOISY_TEST  = "data/noisy_val_1k_harder.npy"
+DATA_NOISY_TRAIN    = "data/noisy_train_19k_harder.npy"
+DATA_CLEAN_TRAIN    = "data/clean_train_19k_harder.npy"
+DATA_NOISY_TEST     = "data/noisy_val_1k_harder.npy"
+DATA_NOISY_TEST_NEW = "data/noisy_val_500_harder.npy"
 
 # One checkpoint + history file per config — the final model checkpoint is also
 # the one loaded for image visualisation and test-set inference.
@@ -392,13 +393,15 @@ def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def load_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    noisy_tr = np.load(DATA_NOISY_TRAIN, allow_pickle=True).astype(np.float32) / 255.0
-    clean_tr = np.load(DATA_CLEAN_TRAIN, allow_pickle=True).astype(np.float32) / 255.0
-    noisy_te = np.load(DATA_NOISY_TEST,  allow_pickle=True).astype(np.float32) / 255.0
+def load_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    noisy_tr     = np.load(DATA_NOISY_TRAIN,    allow_pickle=True).astype(np.float32) / 255.0
+    clean_tr     = np.load(DATA_CLEAN_TRAIN,    allow_pickle=True).astype(np.float32) / 255.0
+    noisy_te     = np.load(DATA_NOISY_TEST,     allow_pickle=True).astype(np.float32) / 255.0
+    noisy_te_new = np.load(DATA_NOISY_TEST_NEW, allow_pickle=True).astype(np.float32) / 255.0
     return (np.expand_dims(noisy_tr, 1),
             np.expand_dims(clean_tr, 1),
-            np.expand_dims(noisy_te, 1))
+            np.expand_dims(noisy_te, 1),
+            np.expand_dims(noisy_te_new, 1))
 
 
 def make_loaders(
@@ -690,8 +693,10 @@ def plot_test_samples(
     device: torch.device,
     indices: Tuple[int, ...] = (7, 42),
     prefix: str = "",
+    val_tag: str = "",
 ) -> None:
     model.eval()
+    tag_suffix = f"_{val_tag}" if val_tag else ""
     for idx in indices:
         noisy    = noisy_te[idx, 0]
         denoised = _denoise_tta(model, noisy, device)
@@ -699,9 +704,10 @@ def plot_test_samples(
         fig, axes = plt.subplots(1, 2, figsize=(8, 4))
         _imshow(axes[0], noisy,    "Noisy")
         _imshow(axes[1], denoised, "Denoised (TTA)")
-        fig.suptitle(f"Test Sample #{idx}", fontsize=11)
+        val_label = f"  [{val_tag}]" if val_tag else ""
+        fig.suptitle(f"Test Sample #{idx}{val_label}", fontsize=11)
         fig.tight_layout()
-        fname = os.path.join(RESULTS_DIR, f"test_sample_{prefix}{idx}.png")
+        fname = os.path.join(RESULTS_DIR, f"test_sample_{prefix}{idx}{tag_suffix}.png")
         fig.savefig(fname, dpi=150)
         plt.close(fig)
         print(f"Saved {fname}")
@@ -721,9 +727,11 @@ def plot_cross_model_comparison(
     device: torch.device,
     indices_train: Tuple[int, ...] = (30, 42),
     indices_test: Tuple[int, ...]  = (7, 42),
+    val_tag_test: str = "",
 ) -> None:
     """Side-by-side denoising comparison across all three configs."""
     models = [("Config A", model_a), ("Config B", model_b), ("Final", model_final)]
+    tag_suffix = f"_{val_tag_test}" if val_tag_test else ""
 
     for idx in indices_train:
         noisy = noisy_tr[idx, 0]
@@ -747,10 +755,11 @@ def plot_cross_model_comparison(
         _imshow(axes[0], noisy, "Noisy")
         for ax, (name, m) in zip(axes[1:], models):
             den = _denoise_tta(m, noisy, device)
-            _imshow(ax, den, f"{name} (TTA)")
-        fig.suptitle(f"Cross-Model Comparison — Test Sample #{idx}", fontsize=11)
+            val_label = f"  [{val_tag_test}]" if val_tag_test else ""
+            _imshow(ax, den, f"{name} (TTA){val_label}")
+        fig.suptitle(f"Cross-Model Comparison — Test Sample #{idx}{' [' + val_tag_test + ']' if val_tag_test else ''}", fontsize=11)
         fig.tight_layout()
-        fname = os.path.join(RESULTS_DIR, f"cross_model_test_{idx}.png")
+        fname = os.path.join(RESULTS_DIR, f"cross_model_test_{idx}{tag_suffix}.png")
         fig.savefig(fname, dpi=150)
         plt.close(fig)
         print(f"Saved {fname}")
@@ -960,8 +969,10 @@ if __name__ == "__main__":
     device = get_device()
     print(f"Device: {device}\n")
 
-    noisy_tr, clean_tr, noisy_te = load_data()
-    print(f"Train shape: {noisy_tr.shape}  Test shape: {noisy_te.shape}\n")
+    noisy_tr, clean_tr, noisy_te, noisy_te_new = load_data()
+    print(f"Train shape:   {noisy_tr.shape}")
+    print(f"Val old shape: {noisy_te.shape}")
+    print(f"Val new shape: {noisy_te_new.shape}\n")
 
     # ── Config A: Basic U-Net ─────────────────────────────────────────────────
     print("=" * 60)
@@ -1040,21 +1051,24 @@ if __name__ == "__main__":
     print("=" * 60)
     plot_training_samples(model_a, noisy_tr, clean_tr, device,
                           indices=(30, 42), prefix="a_")
-    plot_test_samples(model_a, noisy_te, device, indices=(7, 42), prefix="a_")
+    plot_test_samples(model_a, noisy_te,     device, indices=(7, 42), prefix="a_", val_tag="oldval")
+    plot_test_samples(model_a, noisy_te_new, device, indices=(7, 42), prefix="a_", val_tag="newval")
 
     print("\n" + "=" * 60)
     print("Image visualisations — Config B")
     print("=" * 60)
     plot_training_samples(model_b, noisy_tr, clean_tr, device,
                           indices=(30, 42), prefix="b_")
-    plot_test_samples(model_b, noisy_te, device, indices=(7, 42), prefix="b_")
+    plot_test_samples(model_b, noisy_te,     device, indices=(7, 42), prefix="b_", val_tag="oldval")
+    plot_test_samples(model_b, noisy_te_new, device, indices=(7, 42), prefix="b_", val_tag="newval")
 
     print("\n" + "=" * 60)
     print("Image visualisations — Final")
     print("=" * 60)
     plot_training_samples(model_final, noisy_tr, clean_tr, device,
                           indices=(30, 42), prefix="final_")
-    plot_test_samples(model_final, noisy_te, device, indices=(7, 42), prefix="final_")
+    plot_test_samples(model_final, noisy_te,     device, indices=(7, 42), prefix="final_", val_tag="oldval")
+    plot_test_samples(model_final, noisy_te_new, device, indices=(7, 42), prefix="final_", val_tag="newval")
 
     # ── Cross-model comparison panels ────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -1062,7 +1076,12 @@ if __name__ == "__main__":
     print("=" * 60)
     plot_cross_model_comparison(model_a, model_b, model_final,
                                 noisy_tr, clean_tr, noisy_te, device,
-                                indices_train=(30, 42), indices_test=(7, 42))
+                                indices_train=(30, 42), indices_test=(7, 42),
+                                val_tag_test="oldval")
+    plot_cross_model_comparison(model_a, model_b, model_final,
+                                noisy_tr, clean_tr, noisy_te_new, device,
+                                indices_train=(), indices_test=(7, 42),
+                                val_tag_test="newval")
 
     # ── Residual maps (clean − denoised) for training samples ────────────────
     print("\n" + "=" * 60)
@@ -1086,10 +1105,11 @@ if __name__ == "__main__":
         plot_learned_filters(m, filename=os.path.join(RESULTS_DIR, f"filters_{tag}.png"))
         print(f"Saved {RESULTS_DIR}/filters_{tag}.png")
 
-    # ── Test-set denoising → prediction.npz ──────────────────────────────────
+    # ── Test-set denoising → prediction_*.npz ────────────────────────────────
     print("\n" + "=" * 60)
-    print("Denoising test set")
+    print("Denoising test sets")
     print("=" * 60)
-    denoise_test_set(model_final, noisy_te, device, out_path="prediction.npz")
+    denoise_test_set(model_final, noisy_te,     device, out_path="prediction_oldval.npz")
+    denoise_test_set(model_final, noisy_te_new, device, out_path="prediction_newval.npz")
 
     print("\n✓ All done.")
